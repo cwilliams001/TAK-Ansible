@@ -1,0 +1,177 @@
+---
+- name: Set up TAK Server
+  hosts: tak_servers
+  become: yes
+  vars:
+    tak_version: "5.2-RELEASE16"
+    ca_common_name: "TAK-ROOT-CA-01"
+    intermediate_ca_name: "TAK-ID-CA-01"
+    server_cert_name: "takserver"
+    admin_cert_name: "webadmin"
+    tak_user: "tak"
+    tak_group: "tak"
+    country: "US"
+    state: "XX"
+    city: "XX"
+    organization: "ACME"
+    organizational_unit: "tak"
+    capass: "atakatak"
+
+  tasks:
+    - name: Install required packages
+      apt:
+        name:
+          - nano
+          - gnupg
+          - openjdk-17-jre
+        state: present
+        update_cache: yes
+
+    - name: Modify PAM limits
+      lineinfile:
+        path: /etc/security/limits.conf
+        line: "{{ item }}"
+      loop:
+        - "*      soft      nofile      32768"
+        - "*      hard      nofile      32768"
+
+    - name: Add PostgreSQL GPG key
+      apt_key:
+        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        state: present
+
+    - name: Add PostgreSQL repository
+      apt_repository:
+        repo: deb http://apt.postgresql.org/pub/repos/apt/ {{ ansible_distribution_release }}-pgdg main
+        state: present
+
+    - name: Install PostgreSQL and PostGIS
+      apt:
+        name:
+          - postgresql
+          - postgis
+        state: present
+        update_cache: yes
+
+    - name: Copy TAK Server DEB file
+      copy:
+        src: "takserver_{{ tak_version }}_all.deb"
+        dest: "/tmp/takserver_{{ tak_version }}_all.deb"
+
+    - name: Install TAK Server
+      apt:
+        deb: "/tmp/takserver_{{ tak_version }}_all.deb"
+
+    - name: Configure cert-metadata.sh
+      template:
+        src: cert-metadata.sh.j2
+        dest: /opt/tak/certs/cert-metadata.sh
+        owner: "{{ tak_user }}"
+        group: "{{ tak_group }}"
+        mode: '0755'
+
+    - name: Check if CA file exists
+      stat:
+        path: /opt/tak/certs/files/ca.pem
+      register: ca_file
+
+    - name: Remove existing CA file if it exists
+      file:
+       path: /opt/tak/certs/files/ca.pem
+       state: absent
+      when: ca_file.stat.exists
+      become: yes
+
+    - name: Create Root CA
+      shell: |
+        cd /opt/tak/certs
+        sudo -u tak ./makeRootCa.sh --ca-name {{ ca_common_name }}
+      become: yes 
+
+    - name: Create Intermediate CA
+      shell: |
+        cd /opt/tak/certs
+        yes | sudo -u tak ./makeCert.sh ca {{ intermediate_ca_name }}
+      become: yes 
+
+    - name: Create Server Certificate
+      shell: |
+        cd /opt/tak/certs
+        sudo -u tak ./makeCert.sh server {{ server_cert_name }}
+      become: yes
+
+    - name: Modify CoreConfig.example.xml
+      replace:
+        path: /opt/tak/CoreConfig.example.xml
+        regexp: 'truststore-root'
+        replace: "truststore-{{ intermediate_ca_name }}"
+
+    - name: Enable TAK Server service
+      command: update-rc.d takserver defaults
+      become: yes
+
+    - name: Start TAK Server service
+      command: service takserver start
+      become: yes
+    
+    - name: Wait for TAK Server to be ready
+      wait_for:
+        port: 8443  # Adjust this port if TAK Server uses a different one
+        timeout: 600  # Adjust the timeout as needed
+
+    - name: Create Admin Certificate
+      shell: |
+        cd /opt/tak/certs
+        sudo -u tak ./makeCert.sh client {{ admin_cert_name }}
+      become: yes
+     
+
+    - name: Modify Admin Certificate for admin access
+      shell: |
+       sudo -u tak java -jar /opt/tak/utils/UserManager.jar certmod -A /opt/tak/certs/files/{{ admin_cert_name }}.pem
+      become: yes
+
+
+    - name: Copy Admin Certificate to home directory
+      copy:
+        src: "/opt/tak/certs/files/{{ admin_cert_name }}.p12"
+        dest: "/home/{{ ansible_user }}/{{ admin_cert_name }}.p12"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        remote_src: yes
+    
+    - name: Copy Trustore to home directory
+      copy:
+        src: "/opt/tak/certs/files/truststore-{{ intermediate_ca_name }}.p12"
+        dest: "/home/{{ ansible_user }}/truststore-{{ intermediate_ca_name }}.p12"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        remote_src: yes
+
+    - name: Install and configure UFW
+      block:
+        - name: Install UFW
+          apt:
+            name: ufw
+            state: present
+
+        - name: Set default UFW policies
+          ufw:
+            default: "{{ item.policy }}"
+            direction: "{{ item.direction }}"
+          loop:
+            - { policy: 'deny', direction: 'incoming' }
+            - { policy: 'allow', direction: 'outgoing' }
+
+        - name: Allow SSH and TAK Server ports
+          ufw:
+            rule: allow
+            port: "{{ item }}"
+          loop:
+            - "22"
+            - "8089"
+            - "8443"
+
+        - name: Enable UFW
+          ufw:
+            state: enabled
