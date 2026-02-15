@@ -1,2 +1,5 @@
 *.deb
-.vscode
+*.rpm
+.vscode/
+fetched_files/
+*.retry

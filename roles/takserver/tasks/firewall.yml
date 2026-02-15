@@ -1,0 +1,63 @@
+---
+- name: Install UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+
+- name: Set UFW default deny incoming
+  community.general.ufw:
+    direction: incoming
+    default: deny
+
+- name: Set UFW default allow outgoing
+  community.general.ufw:
+    direction: outgoing
+    default: allow
+
+- name: Allow SSH
+  community.general.ufw:
+    rule: allow
+    name: OpenSSH
+
+# Always allow the admin API port
+- name: Allow 8443/tcp (Web Admin API)
+  community.general.ufw:
+    rule: allow
+    port: "8443"
+    proto: tcp
+
+# SSL streaming connections
+- name: Allow 8089/tcp (SSL client connections)
+  community.general.ufw:
+    rule: allow
+    port: "8089"
+    proto: tcp
+  when: enable_ssl | bool
+
+# QUIC connections
+- name: Allow 8090/udp (QUIC client connections)
+  community.general.ufw:
+    rule: allow
+    port: "8090"
+    proto: udp
+  when: enable_quic | bool
+
+# Certificate enrollment
+- name: Allow 8446/tcp (Certificate enrollment)
+  community.general.ufw:
+    rule: allow
+    port: "8446"
+    proto: tcp
+  when: enable_cert_enrollment | bool
+
+# Federation
+- name: Allow 9001/tcp (Federation v2)
+  community.general.ufw:
+    rule: allow
+    port: "9001"
+    proto: tcp
+  when: enable_federation | bool
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled

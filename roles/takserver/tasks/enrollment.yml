@@ -1,0 +1,120 @@
+---
+# When enrollment is enabled and create_enrollment_datapackage is true,
+# build a DataPackage zip containing config.pref, caCert.p12, and MANIFEST.xml.
+# When enrollment is disabled, just copy the CA truststore for distribution.
+
+# --- Determine server endpoint ---
+- name: Resolve server endpoint
+  ansible.builtin.set_fact:
+    _server_endpoint: "{{ server_endpoint if (server_endpoint | default('') | length > 0) else ansible_default_ipv4.address }}"
+    _server_description: "{{ server_description }}"
+
+# --- SSL DataPackage ---
+- name: Build SSL enrollment DataPackage
+  when: enable_cert_enrollment | bool and create_enrollment_datapackage | bool
+  block:
+    - name: Set connector port for SSL DataPackage
+      ansible.builtin.set_fact:
+        _connector_port: "8089:ssl"
+        _datapackage_uuid: "{{ 999999999999 | random | string | to_uuid }}"
+
+    - name: Create temporary DataPackage directory
+      ansible.builtin.file:
+        path: /tmp/enrollmentDP
+        state: directory
+        mode: "0755"
+
+    - name: Template config.pref for SSL
+      ansible.builtin.template:
+        src: config.pref.j2
+        dest: /tmp/enrollmentDP/config.pref
+        mode: "0644"
+
+    - name: Template MANIFEST.xml for SSL
+      ansible.builtin.template:
+        src: MANIFEST.xml.j2
+        dest: /tmp/enrollmentDP/MANIFEST.xml
+        mode: "0644"
+
+    - name: Copy CA truststore into DataPackage
+      ansible.builtin.copy:
+        src: "{{ tak_cert_files_dir }}/truststore-{{ ca_intermediate_name }}.p12"
+        dest: /tmp/enrollmentDP/caCert.p12
+        remote_src: true
+        mode: "0644"
+
+    - name: Create SSL enrollment zip
+      ansible.builtin.shell:
+        cmd: zip -j /tmp/enrollmentDP.zip /tmp/enrollmentDP/*
+      args:
+        creates: /tmp/enrollmentDP.zip
+
+    - name: Fetch SSL DataPackage to control node
+      ansible.builtin.fetch:
+        src: /tmp/enrollmentDP.zip
+        dest: "fetched_files/{{ inventory_hostname }}/enrollmentDP.zip"
+        flat: true
+
+# --- QUIC DataPackage (when both SSL and QUIC are enabled) ---
+- name: Build QUIC enrollment DataPackage
+  when: enable_cert_enrollment | bool and create_enrollment_datapackage | bool and enable_quic | bool and enable_ssl | bool
+  block:
+    - name: Set connector port for QUIC DataPackage
+      ansible.builtin.set_fact:
+        _connector_port: "8090:quic"
+        _datapackage_uuid: "{{ 888888888888 | random | string | to_uuid }}"
+
+    - name: Template config.pref for QUIC
+      ansible.builtin.template:
+        src: config.pref.j2
+        dest: /tmp/enrollmentDP/config.pref
+        mode: "0644"
+
+    - name: Update MANIFEST.xml name for QUIC
+      ansible.builtin.template:
+        src: MANIFEST.xml.j2
+        dest: /tmp/enrollmentDP/MANIFEST.xml
+        mode: "0644"
+
+    - name: Create QUIC enrollment zip
+      ansible.builtin.shell:
+        cmd: zip -j /tmp/enrollmentDP-QUIC.zip /tmp/enrollmentDP/*
+      args:
+        creates: /tmp/enrollmentDP-QUIC.zip
+
+    - name: Fetch QUIC DataPackage to control node
+      ansible.builtin.fetch:
+        src: /tmp/enrollmentDP-QUIC.zip
+        dest: "fetched_files/{{ inventory_hostname }}/enrollmentDP-QUIC.zip"
+        flat: true
+
+# --- Cleanup ---
+- name: Remove temporary DataPackage directory
+  ansible.builtin.file:
+    path: /tmp/enrollmentDP
+    state: absent
+  when: enable_cert_enrollment | bool and create_enrollment_datapackage | bool
+
+- name: Remove temporary zip files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/enrollmentDP.zip
+    - /tmp/enrollmentDP-QUIC.zip
+  when: enable_cert_enrollment | bool and create_enrollment_datapackage | bool
+
+# --- Non-enrollment: just copy the CA truststore ---
+- name: Copy CA truststore for manual distribution
+  ansible.builtin.fetch:
+    src: "{{ tak_cert_files_dir }}/truststore-{{ ca_intermediate_name }}.p12"
+    dest: "fetched_files/{{ inventory_hostname }}/caCert.p12"
+    flat: true
+  when: not (enable_cert_enrollment | bool) or not (create_enrollment_datapackage | bool)
+
+# --- Always fetch admin cert to control node ---
+- name: Fetch admin certificate to control node
+  ansible.builtin.fetch:
+    src: "{{ tak_cert_files_dir }}/{{ admin_cert_name }}.p12"
+    dest: "fetched_files/{{ inventory_hostname }}/{{ admin_cert_name }}.p12"
+    flat: true

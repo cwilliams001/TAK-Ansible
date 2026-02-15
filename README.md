@@ -1,146 +1,270 @@
-# TAK Server Setup with Ansible
+# TAK Server Ansible Deployment
 
-This repository contains an Ansible playbook for automating the setup of a TAK (Team Awareness Kit) Server. It handles the installation of required packages, configuration of certificates, and initial setup of the TAK Server.
+Automated deployment of TAK Server on Ubuntu/Debian using Ansible. This project converts the interactive [installTAK](https://github.com/myTeckNet/installTAK) bash installer into a fully automated, repeatable Ansible role.
 
 ## Prerequisites
 
-1. Ansible installed on your control node
-2. Target Ubuntu or Debian-based system(s) where you want to install TAK Server
-3. SSH access to the target system(s)
-4. TAK Server .deb package file
+- **Control node**: Ansible 2.14+ with the `community.general` collection
+- **Target host**: Ubuntu 22.04 LTS or 24.04 LTS (Debian 12 also supported)
+- **TAK Server .deb**: Place the installer (e.g., `takserver_5.3-RELEASE4_all.deb`) in the project root or set `tak_deb_file` to its path
+- **Minimum RAM**: 8 GB on the target host
+- **SSH access**: Passwordless sudo on the target
 
-## Directory Structure
+## Quick Start
 
-```
-.
-├── cert-metadata.sh.j2
-├── inventory.ini
-├── takserver_5.2-RELEASE16_all.deb
-└── tak-setup.yml
-```
-
-- `cert-metadata.sh.j2`: Jinja2 template for certificate metadata
-- `inventory.ini`: Inventory file listing your target hosts
-- `takserver_5.2-RELEASE16_all.deb`: TAK Server Debian package file
-- `tak-setup.yml`: Main Ansible playbook for TAK Server setup
-
-## Configuration
-
-1. Edit the `inventory.ini` file to include the IP addresses or hostnames of your target systems.
-
-2. Review and modify the variables in the `tak-setup.yml` playbook as needed. Key variables include:
-
-   - `tak_version`: Version of the TAK Server package
-   - `ca_common_name`: Common name for the Root CA
-   - `intermediate_ca_name`: Common name for the Intermediate CA
-   - `server_cert_name`: Name for the server certificate
-   - `admin_cert_name`: Name for the admin certificate
-
-3. Ensure the TAK Server .deb package file is in the same directory as the playbook.
-
-## Usage
-
-To run the playbook:
+1. Clone the repo and place your TAK Server `.deb` in the project root:
 
 ```bash
-ansible-playbook -i inventory.ini tak-setup.yml
+git clone https://github.com/cwilliams001/TAK-Ansible.git
+cd TAK-Ansible
+cp /path/to/takserver_5.3-RELEASE4_all.deb .
 ```
 
-## What the Playbook Does
+2. Edit `inventory.ini` with your target host:
 
-1. Installs required packages (nano, gnupg, OpenJDK 17)
-2. Configures PAM limits
-3. Sets up PostgreSQL repository and installs PostgreSQL and PostGIS
-4. Installs TAK Server from the .deb package
-5. Configures certificates (Root CA, Intermediate CA, Server Certificate, Admin Certificate)
-6. Modifies TAK Server configuration
-7. Enables and starts the TAK Server service
-8. Configures UFW (Uncomplicated Firewall)
+```ini
+[tak_servers]
+192.168.1.100 ansible_user=ubuntu
+```
 
-## Post-Installation
+3. Customize variables in `group_vars/tak_servers.yml`:
 
-After running the playbook:
+```yaml
+cert_country: "US"
+cert_state: "Virginia"
+cert_city: "McLean"
+cert_organization: "MyOrg"
+enable_cert_enrollment: true
+enable_federation: true
+```
 
-1. The admin certificate (`webadmin.p12` by default) will be copied to the home directory of the Ansible user on the target system.
-2. The intermediate CA truststore will also be copied to the home directory.
-3. You can use these files to set up client connections to your TAK Server.
+4. Run the playbook:
 
-## Notes
+```bash
+ansible-playbook -i inventory.ini site.yml
+```
 
-- This playbook assumes a Debian-based system (tested on Ubuntu).
-- Ensure you have adequate permissions to perform all operations on the target system.
-- Review and adjust firewall rules as needed for your specific environment.
+5. Retrieve your artifacts from `fetched_files/<hostname>/`:
+   - `webadmin.p12` - Admin certificate for browser import
+   - `enrollmentDP.zip` - DataPackage for ATAK/iTAK client enrollment
+   - `caCert.p12` - CA truststore (if enrollment is disabled)
 
+## Project Structure
 
+```
+TAK-Ansible/
+├── site.yml                          # Main playbook
+├── inventory.ini                     # Target hosts
+├── group_vars/
+│   └── tak_servers.yml               # User-configurable overrides
+└── roles/
+    └── takserver/
+        ├── defaults/main.yml         # All default variable values
+        ├── handlers/main.yml         # Service restart handler
+        ├── tasks/
+        │   ├── main.yml              # Task orchestration
+        │   ├── prerequisites.yml     # System packages, PostgreSQL repo
+        │   ├── install.yml           # TAK .deb installation
+        │   ├── certificates.yml      # Full PKI chain generation
+        │   ├── coreconfig.yml        # CoreConfig.example.xml manipulation
+        │   ├── federation.yml        # Federation XML configuration
+        │   ├── service.yml           # Service start and readiness wait
+        │   ├── enrollment.yml        # DataPackage creation and cert fetch
+        │   └── firewall.yml          # UFW firewall rules
+        └── templates/
+            ├── cert-metadata.sh.j2   # Certificate DN configuration
+            ├── config.pref.j2        # ATAK client connection preferences
+            └── MANIFEST.xml.j2       # DataPackage manifest
+```
 
-## TODO: Configure Certificate AutoEnrollment
+## Variables Reference
 
-After the initial setup, you may want to configure Certificate AutoEnrollment. This process allows the TAK Server to issue certificates to clients upon successful authentication. Follow these steps:
+All variables are defined in `roles/takserver/defaults/main.yml` and can be overridden in `group_vars/tak_servers.yml` or on the command line with `-e`.
 
-1. Identify the signing truststore:
-   ```
-   ls -l /opt/tak/certs/files/*-signing.jks
-   ```
+### TAK Server Package
 
-2. Configure the Marti dashboard:
-   - Navigate to Configuration > Security and Authentication
-   - Under Security Configuration, select Edit Security
-   - Check "Enable Certificate Enrollment" and select "TAK Server CA"
-   - Enter the following:
-     - Signing Keystore File: `certs/files/<CACommonName>-signing.jks`
-     - Signing Keystore Password: (default is `atakatak` or as defined in `cert-metadata.sh`)
-     - Validity Days: (enter desired certificate validity period)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `tak_version` | `"5.3-RELEASE4"` | TAK Server version string used to locate the `.deb` file |
+| `tak_deb_file` | `"takserver_{{ tak_version }}_all.deb"` | Filename of the `.deb` package on the control node |
 
-3. Modify the CoreConfig.xml file:
-   ```
-   sudo su tak
-   cd /opt/tak
-   vi CoreConfig.xml
-   ```
-   
-   - Locate the `certificateSigning` element
-   - Modify `nameEntry` values as needed
-   - Add `CAkey` and `CAcertificate` attributes to `TAKServerCAConfig`:
-     ```xml
-     <TAKServerCAConfig keystore="JKS" keystoreFile="certs/files/TAK-ID-CA-01-signing.jks" keystorePass="atakatak" validityDays="30" signatureAlg="SHA256WithRSA" CAkey="/opt/tak/certs/files/<CAcommonName>" CAcertificate="/opt/tak/certs/files/<CAcommonName>"/>
-     ```
-   - Add `x509checkRevocation="true"` to the `<auth>` element
+### Certificate Distinguished Name
 
-4. Validate the configuration:
-   ```
-   ./validateConfig.sh
-   ```
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `cert_country` | `"US"` | Two-letter country code for certificate DN |
+| `cert_state` | `"XX"` | State or province |
+| `cert_city` | `"XX"` | City or locality |
+| `cert_organization` | `"TAK"` | Organization name |
+| `cert_organizational_unit` | `"TAK"` | Organizational unit |
 
-5. Restart the TAK Server service:
-   ```
-   exit
-   sudo systemctl restart takserver.service
-   ```
+### Certificate Authority
 
-6. Monitor the log for errors:
-   ```
-   tail -f /opt/tak/logs/takserver-messaging.log
-   ```
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ca_root_name` | `"TAK-ROOT-CA-01"` | Name for the Root CA |
+| `ca_intermediate_name` | `"TAK-ID-CA-01"` | Name for the Intermediate (issuing) CA |
+| `cert_password` | `"atakatak"` | Password for all certificate keystores |
+| `server_cert_name` | `"{{ ansible_hostname }}"` | Server certificate CN (defaults to target hostname) |
+| `admin_cert_name` | `"webadmin"` | Admin client certificate name |
 
-Note: Be cautious when adding multiple OU nameEntry values, as there is a known bug with iTAK/iTAK Tracker in this scenario.
+### Feature Toggles
 
-Remember to adjust these steps as needed for your specific environment and requirements.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `enable_cert_enrollment` | `false` | Enable certificate auto-enrollment (port 8446) |
+| `enable_federation` | `false` | Enable TAK Server Federation v2 (port 9001) |
+| `enable_ssl` | `true` | Enable TCP/SSL client connections (port 8089) |
+| `enable_quic` | `false` | Enable UDP/QUIC client connections (port 8090) |
+| `enable_admin_ui` | `false` | Enable admin management UI on cert_https connector |
+| `enable_webtak` | `false` | Enable WebTAK on cert_https connector |
+| `enable_non_admin_ui` | `false` | Enable non-admin UI on cert_https connector |
+| `enable_fips` | `false` | Pass `--fips` flag to certificate generation scripts |
+| `randomize_db_password` | `true` | Generate a random PostgreSQL password in CoreConfig |
+| `configure_firewall` | `true` | Configure UFW firewall rules |
+| `create_enrollment_datapackage` | `true` | Build enrollment DataPackage zip when enrollment is enabled |
 
-## Troubleshooting
+### DataPackage / Connectivity
 
-If you encounter issues:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `server_description` | `"TAK Server"` | Description shown to TAK clients in the connection list |
+| `server_endpoint` | `""` | Server IP/FQDN for client connections (auto-detected if empty) |
+| `readiness_timeout` | `600` | Seconds to wait for TAK Server to become ready |
 
-1. Check the Ansible output for error messages.
-2. Review TAK Server logs on the target system (`/opt/tak/logs/`).
-3. Ensure all prerequisites are met and the TAK Server .deb file is correct.
+### Paths (advanced)
 
-## Security Considerations
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `tak_dir` | `"/opt/tak"` | TAK Server installation directory |
+| `tak_certs_dir` | `"{{ tak_dir }}/certs"` | Certificate scripts directory |
+| `tak_cert_files_dir` | `"{{ tak_dir }}/certs/files"` | Generated certificate files directory |
+| `tak_user` | `"tak"` | System user that owns TAK Server files |
+| `tak_group` | `"tak"` | System group for TAK Server |
 
-- Change default passwords and certificate passphrases in a production environment.
-- Review and adjust firewall rules as needed.
-- Ensure proper file permissions for sensitive files (certificates, keys).
+## Tags
 
-## Contributing
+Run specific sections of the playbook with `--tags`:
 
-Feel free to submit issues or pull requests if you have suggestions for improvements or encounter any problems.
+```bash
+ansible-playbook -i inventory.ini site.yml --tags certificates
+ansible-playbook -i inventory.ini site.yml --tags coreconfig
+ansible-playbook -i inventory.ini site.yml --tags firewall
+```
 
+Available tags: `prerequisites`, `install`, `certificates`, `coreconfig`, `federation`, `service`, `enrollment`, `firewall`
+
+## Example Configurations
+
+### Minimal (SSL only, no enrollment)
+
+```yaml
+# group_vars/tak_servers.yml
+cert_country: "US"
+cert_state: "Virginia"
+cert_city: "McLean"
+cert_organization: "MyOrg"
+```
+
+### Full-featured (enrollment + federation + WebTAK)
+
+```yaml
+# group_vars/tak_servers.yml
+cert_country: "US"
+cert_state: "Virginia"
+cert_city: "McLean"
+cert_organization: "MyOrg"
+cert_organizational_unit: "Operations"
+ca_root_name: "MYORG-ROOT-CA-01"
+ca_intermediate_name: "MYORG-ID-CA-01"
+cert_password: "strongpassword"
+enable_cert_enrollment: true
+enable_federation: true
+enable_ssl: true
+enable_quic: true
+enable_admin_ui: true
+enable_webtak: true
+server_endpoint: "tak.example.com"
+```
+
+### FIPS mode
+
+```yaml
+# group_vars/tak_servers.yml
+enable_fips: true
+cert_password: "fips-compliant-password"
+```
+
+## Importing the Admin Certificate
+
+After the playbook completes, the `webadmin.p12` admin certificate is fetched to `fetched_files/<hostname>/webadmin.p12` on your control node. Import it into your browser to access the TAK Server admin UI at `https://<server-ip>:8443`.
+
+### Chrome / Edge
+
+1. Go to **Settings > Privacy and Security > Security > Manage certificates**
+2. Click **Import** under the **Your certificates** tab
+3. Select the `webadmin.p12` file
+4. Enter the certificate password (default: `atakatak` or your `cert_password` value)
+5. Navigate to `https://<server-ip>:8443` and select the imported certificate when prompted
+
+### Firefox
+
+1. Go to **Settings > Privacy & Security > Certificates > View Certificates**
+2. Under the **Your Certificates** tab, click **Import**
+3. Select the `webadmin.p12` file and enter the certificate password
+4. Navigate to `https://<server-ip>:8443` and select the certificate when prompted
+
+### macOS (Safari / System-wide)
+
+1. Double-click the `webadmin.p12` file to open it in Keychain Access
+2. Enter the certificate password when prompted
+3. The certificate will appear in your **login** keychain
+4. Navigate to `https://<server-ip>:8443` in Safari
+
+### Command line (curl)
+
+```bash
+curl -k --cert-type P12 --cert fetched_files/<hostname>/webadmin.p12:<cert_password> \
+  https://<server-ip>:8443/Marti/api/version
+```
+
+## Security Notes
+
+- The default certificate password `atakatak` is well-known. Change `cert_password` for any non-lab deployment.
+- Consider using `ansible-vault` to encrypt `group_vars/tak_servers.yml` if it contains sensitive passwords:
+  ```bash
+  ansible-vault encrypt group_vars/tak_servers.yml
+  ansible-playbook -i inventory.ini site.yml --ask-vault-pass
+  ```
+- Admin certificates (`webadmin.p12`) are fetched to the control node under `fetched_files/`. Protect this directory.
+- The `randomize_db_password` option (enabled by default) generates a unique PostgreSQL password per deployment.
+
+## Firewall Ports
+
+When `configure_firewall: true`, UFW rules are applied based on enabled features:
+
+| Port | Protocol | Feature | Condition |
+|------|----------|---------|-----------|
+| 22 | TCP | SSH | Always |
+| 8089 | TCP | SSL client connections | `enable_ssl: true` |
+| 8090 | UDP | QUIC client connections | `enable_quic: true` |
+| 8443 | TCP | Web Admin API | Always |
+| 8446 | TCP | Certificate enrollment | `enable_cert_enrollment: true` |
+| 9001 | TCP | Federation v2 | `enable_federation: true` |
+
+## Mapping to installTAK
+
+This role automates every interactive dialog prompt from the installTAK bash installer:
+
+| installTAK Dialog | Ansible Variable |
+|-------------------|-----------------|
+| Certificate Properties form | `cert_country`, `cert_state`, `cert_city`, `cert_organization`, `cert_organizational_unit` |
+| Certificate password prompt | `cert_password` |
+| Root CA name | `ca_root_name` |
+| Intermediate CA name | `ca_intermediate_name` |
+| Certificate auto-enrollment | `enable_cert_enrollment` |
+| Federation enable | `enable_federation` |
+| Connection type (SSL/QUIC) | `enable_ssl`, `enable_quic` |
+| WebTAK options | `enable_admin_ui`, `enable_webtak`, `enable_non_admin_ui` |
+| DataPackage server description | `server_description` |
+| DataPackage server endpoint | `server_endpoint` |

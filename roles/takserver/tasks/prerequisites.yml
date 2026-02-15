@@ -1,0 +1,52 @@
+---
+- name: Install prerequisite packages
+  ansible.builtin.apt:
+    name:
+      - curl
+      - ca-certificates
+      - gnupg
+      - openjdk-17-jre
+      - dialog
+      - zip
+      - unzip
+      - uuid-runtime
+    state: present
+    update_cache: true
+
+- name: Set JVM soft file limits
+  ansible.builtin.lineinfile:
+    path: /etc/security/limits.conf
+    line: "*      soft      nofile      32768"
+    regexp: '^\*\s+soft\s+nofile'
+    create: true
+    mode: "0644"
+
+- name: Set JVM hard file limits
+  ansible.builtin.lineinfile:
+    path: /etc/security/limits.conf
+    line: "*      hard      nofile      32768"
+    regexp: '^\*\s+hard\s+nofile'
+    create: true
+    mode: "0644"
+
+- name: Create PostgreSQL keyring directory
+  ansible.builtin.file:
+    path: /usr/share/postgresql-common/pgdg
+    state: directory
+    mode: "0755"
+
+- name: Download PostgreSQL signing key (signed-by method)
+  ansible.builtin.get_url:
+    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    dest: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+    mode: "0644"
+
+- name: Add PostgreSQL APT repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc]
+      https://apt.postgresql.org/pub/repos/apt
+      {{ ansible_distribution_release }}-pgdg main
+    filename: pgdg
+    state: present
+    update_cache: true

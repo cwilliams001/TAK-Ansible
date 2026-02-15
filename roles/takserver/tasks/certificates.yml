@@ -1,0 +1,44 @@
+---
+- name: Template cert-metadata.sh
+  ansible.builtin.template:
+    src: cert-metadata.sh.j2
+    dest: "{{ tak_certs_dir }}/cert-metadata.sh"
+    owner: "{{ tak_user }}"
+    group: "{{ tak_group }}"
+    mode: "0755"
+
+- name: Generate Root CA
+  ansible.builtin.shell: >
+    cd {{ tak_certs_dir }} &&
+    ./makeRootCa.sh --ca-name "{{ ca_root_name }}"
+    {% if enable_fips | bool %}--fips{% endif %}
+  args:
+    creates: "{{ tak_cert_files_dir }}/ca.pem"
+  become: true
+
+- name: Generate Intermediate CA
+  ansible.builtin.shell: >
+    cd {{ tak_certs_dir }} &&
+    echo y | ./makeCert.sh ca "{{ ca_intermediate_name }}"
+    {% if enable_fips | bool %}--fips{% endif %}
+  args:
+    creates: "{{ tak_cert_files_dir }}/{{ ca_intermediate_name }}.pem"
+  become: true
+
+- name: Generate Server Certificate
+  ansible.builtin.shell: >
+    cd {{ tak_certs_dir }} &&
+    ./makeCert.sh server {{ server_cert_name }}
+    {% if enable_fips | bool %}--fips{% endif %}
+  args:
+    creates: "{{ tak_cert_files_dir }}/{{ server_cert_name }}.pem"
+  become: true
+
+- name: Generate Admin Client Certificate
+  ansible.builtin.shell: >
+    cd {{ tak_certs_dir }} &&
+    echo y | ./makeCert.sh client {{ admin_cert_name }}
+    {% if enable_fips | bool %}--fips{% endif %}
+  args:
+    creates: "{{ tak_cert_files_dir }}/{{ admin_cert_name }}.pem"
+  become: true

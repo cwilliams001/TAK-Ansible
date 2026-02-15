@@ -1,0 +1,36 @@
+---
+# Remove the default (disabled) federation block shipped with CoreConfig.example.xml
+# and replace it with an active federation configuration.
+
+- name: Remove default federation block from CoreConfig
+  ansible.builtin.replace:
+    path: "{{ tak_dir }}/CoreConfig.example.xml"
+    regexp: '\s*<federation enableFederation="false">[\s\S]*?</federation>'
+    replace: ""
+
+- name: Insert active federation config block
+  ansible.builtin.blockinfile:
+    path: "{{ tak_dir }}/CoreConfig.example.xml"
+    insertafter: "</security>"
+    marker: "<!-- {mark} ANSIBLE MANAGED: federation -->"
+    block: |
+      <federation allowFederatedDelete="false" allowMissionFederation="true" allowDataFeedFederation="true" enableMissionFederationDisruptionTolerance="true" missionFederationDisruptionToleranceRecencySeconds="43200" enableFederation="true" federatedGroupMapping="true" automaticGroupMapping="false" enableDataPackageAndMissionFileFilter="false">
+          <federation-server port="9000" coreVersion="2" v1enabled="false" v2port="9001" v2enabled="true">
+              <tls context="TLSv1.2" keymanager="SunX509" keystore="JKS" keystoreFile="certs/files/{{ server_cert_name }}.jks" keystorePass="{{ cert_password }}" truststore="JKS" truststoreFile="certs/files/fed-truststore.jks" truststorePass="{{ cert_password }}"/>
+              <federation-port port="9000" tlsVersion="TLSv1.2"/>
+              <v1Tls tlsVersion="TLSv1.2"/>
+              <v1Tls tlsVersion="TLSv1.3"/>
+          </federation-server>
+          <fileFilter>
+              <fileExtension>pref</fileExtension>
+          </fileFilter>
+      </federation>
+
+# When federation is enabled but enrollment is NOT, the auth tag still needs
+# x509groups attributes for federation group mapping to work.
+- name: Update auth tag for federation (without enrollment)
+  ansible.builtin.replace:
+    path: "{{ tak_dir }}/CoreConfig.example.xml"
+    regexp: '<auth>'
+    replace: '<auth x509groups="true" x509groupsDefaultRDN="true" x509addAnonymous="false">'
+  when: not (enable_cert_enrollment | bool)

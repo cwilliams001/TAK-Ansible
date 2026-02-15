@@ -1,0 +1,18 @@
+---
+# Override role defaults here for your environment.
+# See roles/takserver/defaults/main.yml for all available variables.
+#
+# Example overrides:
+# tak_version: "5.3-RELEASE4"
+# cert_country: "US"
+# cert_state: "Virginia"
+# cert_city: "McLean"
+# cert_organization: "MyOrg"
+# cert_organizational_unit: "Operations"
+# ca_root_name: "MYORG-ROOT-CA-01"
+# ca_intermediate_name: "MYORG-ID-CA-01"
+# cert_password: "changeme"
+# enable_cert_enrollment: true
+# enable_federation: true
+# enable_webtak: true
+# enable_admin_ui: true

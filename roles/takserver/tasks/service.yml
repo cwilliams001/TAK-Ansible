@@ -1,0 +1,48 @@
+---
+- name: Ensure messaging log file exists
+  ansible.builtin.file:
+    path: "{{ tak_dir }}/logs/takserver-messaging.log"
+    state: touch
+    owner: "{{ tak_user }}"
+    group: "{{ tak_group }}"
+    mode: "0640"
+    modification_time: preserve
+    access_time: preserve
+
+- name: Set ownership on TAK directory
+  ansible.builtin.file:
+    path: "{{ tak_dir }}"
+    state: directory
+    owner: "{{ tak_user }}"
+    group: "{{ tak_group }}"
+    recurse: true
+
+- name: Add current user to tak group
+  ansible.builtin.user:
+    name: "{{ ansible_user | default(ansible_env.SUDO_USER | default(ansible_env.USER)) }}"
+    groups: "{{ tak_group }}"
+    append: true
+
+- name: Enable and start TAK Server
+  ansible.builtin.systemd:
+    name: takserver
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Wait for TAK Server readiness
+  ansible.builtin.shell:
+    cmd: grep -q "Started TAK Server messaging Microservice" {{ tak_dir }}/logs/takserver-messaging.log
+  register: _readiness_check
+  until: _readiness_check.rc == 0
+  retries: "{{ (readiness_timeout | int / 10) | int }}"
+  delay: 10
+  changed_when: false
+
+- name: Register admin certificate with UserManager
+  ansible.builtin.shell: >
+    java -jar {{ tak_dir }}/utils/UserManager.jar certmod -A
+    {{ tak_cert_files_dir }}/{{ admin_cert_name }}.pem
+  register: _usermanager_result
+  changed_when: "'certmod successful' in (_usermanager_result.stdout | default(''))"
+  become: true

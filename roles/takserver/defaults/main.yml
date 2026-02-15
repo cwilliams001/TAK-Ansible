@@ -1,0 +1,56 @@
+---
+# TAK Server package version
+tak_version: "5.3-RELEASE4"
+
+# Certificate Distinguished Name fields
+cert_country: "US"
+cert_state: "XX"
+cert_city: "XX"
+cert_organization: "TAK"
+cert_organizational_unit: "TAK"
+
+# Certificate Authority names
+ca_root_name: "TAK-ROOT-CA-01"
+ca_intermediate_name: "TAK-ID-CA-01"
+
+# Certificate password (default TAK password)
+cert_password: "atakatak"
+
+# Server certificate name (defaults to the target hostname)
+server_cert_name: "{{ ansible_hostname }}"
+
+# Admin certificate name
+admin_cert_name: "webadmin"
+
+# Feature toggles
+enable_cert_enrollment: false
+enable_federation: false
+enable_ssl: true
+enable_quic: false
+enable_admin_ui: false
+enable_webtak: false
+enable_non_admin_ui: false
+create_enrollment_datapackage: true
+enable_fips: false
+randomize_db_password: true
+configure_firewall: true
+
+# TAK Server paths
+tak_dir: "/opt/tak"
+tak_certs_dir: "{{ tak_dir }}/certs"
+tak_cert_files_dir: "{{ tak_dir }}/certs/files"
+
+# TAK Server user/group
+tak_user: "tak"
+tak_group: "tak"
+
+# TAK Server .deb file path on the Ansible control node
+tak_deb_file: "takserver_{{ tak_version }}_all.deb"
+
+# DataPackage settings
+server_description: "TAK Server"
+# Server endpoint for client connections (leave empty to auto-detect)
+server_endpoint: ""
+
+# Readiness timeout in seconds
+readiness_timeout: 600

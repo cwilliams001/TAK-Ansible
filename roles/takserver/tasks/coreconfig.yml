@@ -1,0 +1,84 @@
+---
+# --- Truststore name ---
+- name: Update truststore name in CoreConfig
+  ansible.builtin.replace:
+    path: "{{ tak_dir }}/CoreConfig.example.xml"
+    regexp: 'truststore-root'
+    replace: "truststore-{{ ca_intermediate_name }}"
+
+# --- CRL entry ---
+- name: Insert CRL entry in security block
+  ansible.builtin.lineinfile:
+    path: "{{ tak_dir }}/CoreConfig.example.xml"
+    insertbefore: "</security>"
+    line: '    <crl _name="TAKServer CA" crlFile="certs/files/{{ ca_intermediate_name }}.crl"/>'
+
+# --- JKS hostname ---
+- name: Update JKS filename to server hostname
+  ansible.builtin.replace:
+    path: "{{ tak_dir }}/CoreConfig.example.xml"
+    regexp: 'takserver\.jks'
+    replace: "{{ server_cert_name }}.jks"
+
+# --- Certificate password ---
+- name: Update certificate password in CoreConfig
+  ansible.builtin.replace:
+    path: "{{ tak_dir }}/CoreConfig.example.xml"
+    regexp: 'atakatak'
+    replace: "{{ cert_password }}"
+  when: cert_password != "atakatak"
+
+# --- Database password randomization ---
+- name: Generate random database password
+  ansible.builtin.shell: openssl rand -base64 14 | tr -dc 'a-zA-Z0-9'
+  register: _db_password_result
+  changed_when: false
+  when: randomize_db_password | bool
+
+- name: Set database password in CoreConfig
+  ansible.builtin.replace:
+    path: "{{ tak_dir }}/CoreConfig.example.xml"
+    regexp: 'password=""'
+    replace: 'password="{{ _db_password_result.stdout }}"'
+  when: randomize_db_password | bool and _db_password_result.stdout | default('') | length > 0
+
+# --- QUIC input ---
+- name: Insert QUIC input element
+  ansible.builtin.lineinfile:
+    path: "{{ tak_dir }}/CoreConfig.example.xml"
+    insertafter: '<input _name='
+    line: '    <input _name="quic" protocol="quic" port="8090" coreVersion="2"/>'
+  when: enable_quic | bool
+
+# --- Certificate auto-enrollment ---
+- name: Insert certificate auto-enrollment block
+  ansible.builtin.blockinfile:
+    path: "{{ tak_dir }}/CoreConfig.example.xml"
+    insertafter: "</buffer>"
+    marker: "<!-- {mark} ANSIBLE MANAGED: certificate enrollment -->"
+    block: |
+      <certificateSigning CA="TAKServer">
+          <certificateConfig>
+              <nameEntries>
+                  <nameEntry name="O" value="{{ cert_organization }}"/>
+                  <nameEntry name="OU" value="{{ cert_organizational_unit }}"/>
+              </nameEntries>
+          </certificateConfig>
+          <TAKServerCAConfig keystore="JKS" keystoreFile="certs/files/{{ ca_intermediate_name }}-signing.jks" keystorePass="{{ cert_password }}" validityDays="30" signatureAlg="SHA256WithRSA" CAkey="/opt/tak/certs/files/{{ ca_intermediate_name }}" CAcertificate="/opt/tak/certs/files/{{ ca_intermediate_name }}"/>
+      </certificateSigning>
+  when: enable_cert_enrollment | bool
+
+- name: Update auth tag for certificate enrollment
+  ansible.builtin.replace:
+    path: "{{ tak_dir }}/CoreConfig.example.xml"
+    regexp: '<auth>'
+    replace: '<auth x509groups="true" x509groupsDefaultRDN="true" x509addAnonymous="false" x509useGroupCache="true" x509checkRevocation="true">'
+  when: enable_cert_enrollment | bool
+
+# --- WebTAK options on cert_https connector ---
+- name: Set WebTAK options on cert_https connector
+  ansible.builtin.replace:
+    path: "{{ tak_dir }}/CoreConfig.example.xml"
+    regexp: '"cert_https"\/'
+    replace: '"cert_https" enableAdminUI="{{ enable_admin_ui | bool | string | lower }}" enableWebtak="{{ enable_webtak | bool | string | lower }}" enableNonAdminUI="{{ enable_non_admin_ui | bool | string | lower }}"/'
+  when: enable_cert_enrollment | bool

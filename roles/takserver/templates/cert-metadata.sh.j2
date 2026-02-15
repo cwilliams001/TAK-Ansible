@@ -1,21 +1,21 @@
 #!/bin/bash
 
-# Common configuration for all certificates 
+# Common configuration for all certificates
 #  Edit these fields to be appropriate for your organization
 #  If they are left blank, they will not be included.  Do not leave COUNTRY
 #  blank (you may set it to "XX" if you want to be obtuse).
-# 
+#
 #  Values for each may be optionally set as environment variables.
 #  Replace variables such as ${STATE} and ${CITY} as needed.
-# 
+#
 
-COUNTRY={{ country | default('US') }}
-STATE={{ state | default('XX') }}
-CITY={{ city | default('XX') }}
-ORGANIZATION={{ organization | default('EmeraldSpec') }}
-ORGANIZATIONAL_UNIT={{ organizational_unit | default('tak') }}
+COUNTRY="{{ cert_country }}"
+STATE="{{ cert_state }}"
+CITY="{{ cert_city }}"
+ORGANIZATION="{{ cert_organization }}"
+ORGANIZATIONAL_UNIT="{{ cert_organizational_unit }}"
 
-CAPASS=${CAPASS:-{{ capass | default('atakatak') }}}
+CAPASS="${CAPASS:-{{ cert_password }}}"
 PASS=${PASS:-$CAPASS}
 
 ## subdirectory to put all the actual certs and keys in

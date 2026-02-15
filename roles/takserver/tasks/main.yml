@@ -1,0 +1,34 @@
+---
+- name: Run prerequisites
+  ansible.builtin.include_tasks: prerequisites.yml
+  tags: [prerequisites]
+
+- name: Install TAK Server
+  ansible.builtin.include_tasks: install.yml
+  tags: [install]
+
+- name: Generate certificates
+  ansible.builtin.include_tasks: certificates.yml
+  tags: [certificates]
+
+- name: Configure CoreConfig
+  ansible.builtin.include_tasks: coreconfig.yml
+  tags: [coreconfig]
+
+- name: Configure federation
+  ansible.builtin.include_tasks: federation.yml
+  tags: [federation]
+  when: enable_federation | bool
+
+- name: Manage TAK Server service
+  ansible.builtin.include_tasks: service.yml
+  tags: [service]
+
+- name: Create enrollment DataPackage
+  ansible.builtin.include_tasks: enrollment.yml
+  tags: [enrollment]
+
+- name: Configure firewall
+  ansible.builtin.include_tasks: firewall.yml
+  tags: [firewall]
+  when: configure_firewall | bool

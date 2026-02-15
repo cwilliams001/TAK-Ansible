@@ -1,0 +1,27 @@
+---
+- name: Copy TAK Server .deb to target
+  ansible.builtin.copy:
+    src: "{{ tak_deb_file }}"
+    dest: "/tmp/{{ tak_deb_file }}"
+    mode: "0644"
+
+- name: Install TAK Server .deb package
+  ansible.builtin.apt:
+    deb: "/tmp/{{ tak_deb_file }}"
+    state: present
+
+- name: Ensure PostgreSQL service is running
+  ansible.builtin.systemd:
+    name: postgresql
+    state: started
+    enabled: true
+
+- name: Backup CoreConfig.example.xml
+  ansible.builtin.copy:
+    src: "{{ tak_dir }}/CoreConfig.example.xml"
+    dest: "{{ tak_dir }}/CoreConfig.example.xml.bak"
+    remote_src: true
+    force: false
+    owner: "{{ tak_user }}"
+    group: "{{ tak_group }}"
+    mode: "0640"

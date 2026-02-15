@@ -1,0 +1,6 @@
+---
+- name: Deploy TAK Server
+  hosts: tak_servers
+  become: true
+  roles:
+    - takserver

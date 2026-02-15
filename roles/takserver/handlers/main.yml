@@ -1,0 +1,6 @@
+---
+- name: Restart takserver
+  ansible.builtin.systemd:
+    name: takserver
+    state: restarted
+    daemon_reload: true
